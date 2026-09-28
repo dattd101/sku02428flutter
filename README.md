@@ -1,60 +1,94 @@
-# sku02428flutter
+# sku02428flutter server
 
-Flutter client kế thừa protocol trực tiếp từ `sku02428` + `sku02428wss`.
+WebSocket backend riêng cho app Flutter SKU02428. Project kế thừa protocol của `sku02428wss`, để app Flutter có cùng flow session-only: tạo UID tạm → online → tìm UID → gửi/nhận yêu cầu chat → chat realtime → gửi file → kết thúc session.
 
-## Flow
+## Endpoint
 
-1. App tạo/lưu session UUID + username local.
-2. Mở WebSocket và gửi `hello`.
-3. Server trả `session_ready` và UID thực tế.
-4. Tab Social tìm chính xác username đang online bằng `search_users`.
-5. `chat_request` -> peer `chat_accept` / `chat_reject`.
-6. Khi nhận `chat_created`, app tự chuyển sang tab Chat.
-7. Chat dùng cùng WebSocket cho message/file/reconnect.
+Sau khi deploy Vercel, ví dụ project domain là `https://sku02428flutter.vercel.app`:
 
-## Cấu hình WSS
+- WebSocket: `wss://sku02428flutter.vercel.app/api/ws`
+- Health: `https://sku02428flutter.vercel.app/api/health`
 
-Không cần sửa source nếu dùng dart-define:
+App Flutter chỉ cần cấu hình `WS_URL` thành WebSocket endpoint trên.
 
-```bash
-flutter pub get
-flutter run --dart-define=WS_URL=wss://YOUR-WSS-SERVER
-```
+## Chạy local
 
-Android emulator chạy server local trên máy host:
+Yêu cầu Node.js >= 20.
 
 ```bash
-flutter run --dart-define=WS_URL=ws://10.0.2.2:8080
+npm install
+npm run check
+npm run dev:local
 ```
 
-iOS Simulator thường dùng:
+Local WebSocket: `ws://127.0.0.1:8080`
+Local health: `http://127.0.0.1:8080/health`
+
+Hoặc test runtime Next/Vercel:
 
 ```bash
-flutter run --dart-define=WS_URL=ws://127.0.0.1:8080
+npm run dev
 ```
 
-Production nên dùng `wss://`.
+## Deploy Vercel
 
-## Protocol đã implement
+1. Tạo GitHub repository `sku02428flutter`.
+2. Push toàn bộ nội dung thư mục này lên repo.
+3. Import repo đó vào Vercel.
+4. Framework Preset: Next.js.
+5. Deploy.
+6. Mở `/api/health` để kiểm tra server.
+7. Đổi `WS_URL` trong app Flutter sang `wss://<domain>/api/ws`.
 
-Client -> server: `hello`, `search_users`, `chat_request`, `chat_accept`, `chat_reject`, `message`, `file_start`, `file_chunk`, `file_end`, `chat_close`, `end_session`.
+Native Flutter thường không gửi browser Origin, vì vậy mặc định `ALLOWED_ORIGINS` để trống. Nếu đặt biến này, server chỉ nhận đúng các Origin được liệt kê, phân cách bằng dấu phẩy.
 
-Server -> client: `session_ready`, `online_count`, `search_results`, `chat_request`, `chat_request_cancelled`, `chat_request_sent`, `chat_rejected`, `chat_created`, `message`, `file_start/chunk/end/abort`, `peer_status`, `peer_disconnected`, `chat_expired`, `chat_closed`, `error`, `session_ended`.
+## Protocol
 
-## Ghi chú
+Client bắt đầu bằng:
 
-- Search server hiện tại là exact username match, không phải fuzzy search.
-- Session/chat là tạm thời theo backend hiện tại; chat mặc định hết hạn theo `CHAT_TTL_MS` của server.
-- File tối đa 3.5 MiB theo server. Bản Flutter chọn file và relay qua WSS; file nhận hiện được giữ trong RAM của phiên app.
-- Flutter không tạo REST API mới.
-
-## Platform scaffold
-
-Repo ZIP này có source Flutter đầy đủ. Nếu Flutter SDK của bạn yêu cầu regenerate platform files theo version SDK đang dùng, chạy một lần:
-
-```bash
-flutter create --platforms=android,ios .
-flutter pub get
+```json
+{"type":"hello","sessionId":"<optional UUID>","username":"<optional username>"}
 ```
 
-Lệnh này giữ nguyên `lib/` và tạo/cập nhật Android/iOS runner chuẩn theo Flutter SDK trên máy bạn.
+Server trả `session_ready` gồm UID/user, số online và các chat còn sống. Các event chính:
+
+- Client → server: `hello`, `search_users`, `chat_request`, `chat_accept`, `chat_reject`, `message`, `file_start`, `file_chunk`, `file_end`, `file_cancel`, `chat_close`, `end_session`, `pong`.
+- Server → client: `session_ready`, `online_count`, `search_results`, `chat_request`, `chat_request_sent`, `chat_rejected`, `chat_created`, `message`, `file_start`, `file_chunk`, `file_end`, `file_abort`, `peer_status`, `peer_disconnected`, `chat_closed`, `chat_expired`, `session_ended`, `error`.
+
+### Search UID
+
+```json
+{"type":"search_users","query":"user_1790560867839"}
+```
+
+### Request chat
+
+```json
+{"type":"chat_request","targetUserId":"<id từ search_results>"}
+```
+
+Người nhận accept:
+
+```json
+{"type":"chat_accept","requestId":"<request id>"}
+```
+
+Hai phía nhận `chat_created`. Từ đây dùng `chat.id` để gửi message.
+
+### Message
+
+```json
+{"type":"message","chatId":"<chat id>","clientMessageId":"<uuid>","text":"Xin chào"}
+```
+
+## Đặc tính hiện tại
+
+- Không database, không lưu nội dung chat trên server.
+- UID/session nằm trong memory của instance server.
+- Chat mặc định hết hạn sau 60 phút.
+- Có grace period reconnect 8 giây.
+- Tin nhắn tối đa 2.000 ký tự.
+- File tối đa 3.5 MB; tối đa 30 file/chat; relay theo chunk base64.
+- Có rate limit cơ bản và heartbeat.
+
+> Lưu ý production: vì state đang nằm trong RAM, kiến trúc này phù hợp với mô hình temp/session chat hiện tại. Nếu cần session bền vững qua cold start, scale nhiều instance hoặc deploy lại server, cần chuyển presence/session/chat metadata sang Redis/KV hoặc một shared store.

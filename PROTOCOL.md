@@ -1,19 +1,31 @@
-# Protocol compatibility
+# SKU02428 Flutter WSS protocol
 
-Source of truth inspected: `sku02428-main/components/ChatApp.js` and `sku02428wss-main/lib/chat-server.mjs`.
+## State flow
 
-## Session
-`hello {sessionId, username}` -> `session_ready {resumed,user,onlineUsers,chats}`.
+`DISCONNECTED -> CONNECTING -> SESSION_READY -> SEARCHING -> REQUESTING/INCOMING -> CONNECTED -> CHAT -> CLOSED`
 
-## Discovery / connection
-`search_users {query}` -> `search_results {users}`.
-`chat_request {targetUserId}` -> recipient `chat_request`; recipient answers `chat_accept` or `chat_reject`; success sends `chat_created` to both peers.
+Session là tạm thời. Server không lưu message history.
 
-## Messaging
-`message {chatId,clientMessageId,text}`. Server relays message to peer. Flutter immediately adds its own outgoing message locally, matching the web implementation behavior.
+## hello
+Client gửi ngay khi socket mở. `sessionId` có thể dùng để resume trong grace period.
 
-## Files
-Chunked base64 transfer: `file_start`, `file_chunk`, `file_end`; server can emit `file_abort`. Chunk byte size is intentionally below the server's 128 KiB base64-frame validation threshold.
+## session_ready
+Server trả `user: {id, username}`, `resumed`, `graceMs`, `onlineUsers`, `chats`.
 
-## Lifecycle
-Server supports reconnect grace, `peer_status`, `chat_close`, `chat_expired`, `peer_disconnected`, and `end_session`.
+## search_users
+Search chính xác username sau khi bỏ `@`, lowercase. Chỉ trả user khác đang online.
+
+## chat_request / chat_accept / chat_reject
+Request có TTL 30 giây. Accept tạo chat cho cả hai phía; nếu chat đã tồn tại server trả chat hiện tại.
+
+## message
+Server relay realtime tới peer. Server không persist message.
+
+## files
+`file_start -> file_chunk* -> file_end`. Client phải giữ `transferId`. Chunk là base64 và mỗi frame bị giới hạn.
+
+## reconnect
+Socket disconnect: user được giữ trong `DISCONNECT_GRACE_MS`. Client reconnect và gửi `hello` với `sessionId` cũ để resume.
+
+## end_session
+Xóa session, các chat liên quan và đóng socket.

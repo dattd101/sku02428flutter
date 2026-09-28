@@ -1,0 +1,23 @@
+{
+  "name": "sku02428flutter-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev": "next dev",
+    "dev:local": "node --watch index.mjs",
+    "start:local": "node index.mjs",
+    "build": "next build",
+    "start": "next start",
+    "check": "node --check index.mjs && node --check lib/chat-server.mjs && node --check app/api/ws/route.js && node --check app/api/health/route.js",
+    "test:file-failure": "node tests/file-failure.mjs"
+  },
+  "dependencies": {
+    "@vercel/functions": "^3.7.1",
+    "next": "^16.2.9",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "ws": "^8.21.3"
+  }
+}
